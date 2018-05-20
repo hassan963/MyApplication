@@ -3,7 +3,9 @@ package praptiservice.praptidigital.myapplication;
 import android.Manifest;
 import android.animation.ValueAnimator;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.location.Location;
+import android.os.AsyncTask;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
@@ -13,6 +15,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.animation.LinearInterpolator;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
@@ -29,14 +32,28 @@ import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MapStyleOptions;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.PolylineOptions;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 
-import java.util.HashMap;
+import org.json.JSONException;
+import org.json.JSONObject;
 
-public class MainActivity extends AppCompatActivity implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener, OnMapReadyCallback {
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
+public class MainActivity extends AppCompatActivity
+        implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener, LocationListener, OnMapReadyCallback {
 
 
     private static final String LOG_TAG = "MAIN ACTIVITY LOG";
@@ -47,11 +64,9 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     private GoogleApiClient mGoogleApiClient;
     private LocationRequest mLocationRequest;
 
-    private Location mLocation;
+    private SupportMapFragment mapFragment;
 
-    SupportMapFragment mapFragment;
-
-    GoogleMap googleMap;
+    private GoogleMap googleMap;
     private Marker currentPositionMarker = null;
 
     private DatabaseReference mDatabase;
@@ -178,24 +193,102 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
         LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
         CameraPosition cameraPosition = new CameraPosition.Builder()
-                .target(latLng).zoom(20).build();
+                .target(latLng).zoom(15).build();
+
+        // Static LatLng
+        LatLng staticLatLng = new LatLng(23.746513, 90.377705);
 
         // mMap.clear(); // Call if You need To Clear Map
-        if (currentPositionMarker == null)
+        if (currentPositionMarker == null) {
+            currentPositionMarker = googleMap.addMarker(new MarkerOptions()
+                    .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_BLUE))
+                    .position(staticLatLng)
+                    .zIndex(20));
+
             currentPositionMarker = googleMap.addMarker(new MarkerOptions()
                     .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW))
                     .position(latLng)
                     .zIndex(20));
-        else{
-            // currentPositionMarker.setPosition(latLng);
-            animateMarker(location, currentPositionMarker);
+        } else{
+            currentPositionMarker.setPosition(latLng);
+//            animateMarker(location, currentPositionMarker);
         }
-
-
 
         googleMap.animateCamera(CameraUpdateFactory
                 .newCameraPosition(cameraPosition));
 
+//        googleMap.addPolyline(new PolylineOptions().add(
+//                latLng,
+//                new LatLng(23.874586, 90.400562),
+//                new LatLng(23.778379, 90.398221),
+//                new LatLng(23.775348, 90.389821),
+//                new LatLng(23.749928, 90.393247),
+//                new LatLng(23.751072, 90.387136),
+//                staticLatLng).width(10).color(Color.BLACK));
+
+        String url = getRequestURL(latLng, staticLatLng);
+        DirectionRequestTask directionRequestTask = new DirectionRequestTask();
+        directionRequestTask.execute(url);
+    }
+
+    private String getRequestURL(LatLng currentLatLng, LatLng destinationLatLng) {
+        // Value of current location
+        String currentString = "origin=" + currentLatLng.latitude + "," + currentLatLng.longitude;
+        // Value of destination location
+        String destinationString = "destination=" + destinationLatLng.latitude + "," + destinationLatLng.longitude;
+        // Set value to enable the sensor
+        String sensor = "sensor-false";
+        // Mode for finding direction
+        String mode = "mode-driving";
+        // Build the full param
+        String param = currentString + "&" + destinationString + "&" + sensor + "&" + mode;
+        // Output format
+        String output = "json";
+        // Create url to request
+        String url = "https://maps.googleapis.com/maps/api/directions/" + output + "?" + param;
+
+        return url;
+    }
+
+    private String requestDirection(String requestUrl) throws IOException {
+        String responseString = null;
+        InputStream inputStream = null;
+        HttpURLConnection httpURLConnection = null;
+
+        try {
+            URL url = new URL(requestUrl);
+            httpURLConnection = (HttpURLConnection) url.openConnection();
+            httpURLConnection.connect();
+
+            // Get the response result
+            inputStream = httpURLConnection.getInputStream();
+            InputStreamReader inputStreamReader = new InputStreamReader(inputStream);
+            BufferedReader bufferedReader = new BufferedReader(inputStreamReader);
+
+            StringBuffer stringBuffer = new StringBuffer();
+            String line = null;
+
+            while ((line = bufferedReader.readLine()) != null) {
+                stringBuffer.append(line);
+            }
+
+            responseString = stringBuffer.toString();
+            bufferedReader.close();
+            inputStreamReader.close();
+
+        } catch (MalformedURLException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            if (inputStream != null) {
+                inputStream.close();
+            }
+
+            httpURLConnection.disconnect();
+        }
+
+        return responseString;
     }
 
     public boolean checkLocationPermission() {
@@ -237,10 +330,7 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
         this.googleMap = googleMap;
 
-        boolean success = googleMap.setMapStyle(
-                MapStyleOptions.loadRawResourceStyle(
-                        this, R.raw.map));
-
+        boolean success = googleMap.setMapStyle(MapStyleOptions.loadRawResourceStyle(this, R.raw.map));
     }
 
     public static void animateMarker(final Location destination, final Marker marker) {
@@ -285,6 +375,77 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                 }
                 double lng = lngDelta * fraction + a.longitude;
                 return new LatLng(lat, lng);
+            }
+        }
+    }
+
+    public class DirectionRequestTask extends AsyncTask<String, Void, String> {
+
+        @Override
+        protected String doInBackground(String... strings) {
+            String responseString = null;
+            try {
+                responseString = requestDirection(strings[0]);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+            return responseString;
+        }
+
+        @Override
+        protected void onPostExecute(String s) {
+            super.onPostExecute(s);
+            // Parse json here
+            TaskParser taskParser = new TaskParser();
+            taskParser.execute();
+        }
+    }
+
+    public class TaskParser extends AsyncTask<String, Void, List<List<HashMap<String, String>>>> {
+
+        @Override
+        protected List<List<HashMap<String, String>>> doInBackground(String... strings) {
+            JSONObject jsonObject = null;
+            List<List<HashMap<String, String>>> routes = null;
+            try {
+                jsonObject = new JSONObject(strings[0]);
+                DirectionParser directionParser = new DirectionParser();
+                routes = directionParser.parse(jsonObject);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+            return routes;
+        }
+
+        @Override
+        protected void onPostExecute(List<List<HashMap<String, String>>> lists) {
+            // Get a list of routes and display it on the map
+            ArrayList points = null;
+            PolylineOptions polylineOptions = null;
+
+            for (List<HashMap<String, String>> path : lists) {
+                points = new ArrayList();
+                polylineOptions = new PolylineOptions();
+
+                for (HashMap<String, String> point : path) {
+                    double lat = Double.parseDouble(point.get("lat"));
+                    double lon = Double.parseDouble(point.get("lon"));
+
+                    points.add(new LatLng(lat, lon));
+                }
+
+                polylineOptions.addAll(points);
+                polylineOptions.width(10);
+                polylineOptions.color(Color.BLACK);
+                polylineOptions.geodesic(true);
+            }
+
+            if (polylineOptions != null) {
+                googleMap.addPolyline(polylineOptions);
+            } else {
+                Toast.makeText(MainActivity.this, "Direction not found!", Toast.LENGTH_SHORT).show();
             }
         }
     }
