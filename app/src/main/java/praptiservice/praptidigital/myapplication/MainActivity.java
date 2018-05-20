@@ -57,7 +57,8 @@ public class MainActivity extends AppCompatActivity
 
 
     private static final String LOG_TAG = "MAIN ACTIVITY LOG";
-    public static final int MY_PERMISSIONS_REQUEST_LOCATION = 99;
+    private static final int MY_PERMISSIONS_REQUEST_LOCATION = 99;
+    private static final LatLng staticLatLng = new LatLng(23.746513, 90.377705); // Static LatLng
 
     private TextView mOutputTextView;
 
@@ -195,9 +196,6 @@ public class MainActivity extends AppCompatActivity
         CameraPosition cameraPosition = new CameraPosition.Builder()
                 .target(latLng).zoom(15).build();
 
-        // Static LatLng
-        LatLng staticLatLng = new LatLng(23.746513, 90.377705);
-
         // mMap.clear(); // Call if You need To Clear Map
         if (currentPositionMarker == null) {
             currentPositionMarker = googleMap.addMarker(new MarkerOptions()
@@ -217,6 +215,7 @@ public class MainActivity extends AppCompatActivity
         googleMap.animateCamera(CameraUpdateFactory
                 .newCameraPosition(cameraPosition));
 
+        // For showing the straight line
 //        googleMap.addPolyline(new PolylineOptions().add(
 //                latLng,
 //                new LatLng(23.874586, 90.400562),
@@ -226,69 +225,22 @@ public class MainActivity extends AppCompatActivity
 //                new LatLng(23.751072, 90.387136),
 //                staticLatLng).width(10).color(Color.BLACK));
 
-        String url = getRequestURL(latLng, staticLatLng);
-        DirectionRequestTask directionRequestTask = new DirectionRequestTask();
-        directionRequestTask.execute(url);
+        Object dataTransfer[] = new Object[3];
+        String url = getDirectionsUrl(latLng.latitude, latLng.longitude);
+        GetDirectionsData getDirectionsData = new GetDirectionsData();
+        dataTransfer[0] = googleMap;
+        dataTransfer[1] = url;
+        dataTransfer[2] = new LatLng(latLng.latitude, latLng.longitude);
+        getDirectionsData.execute(dataTransfer);
     }
 
-    private String getRequestURL(LatLng currentLatLng, LatLng destinationLatLng) {
-        // Value of current location
-        String currentString = "origin=" + currentLatLng.latitude + "," + currentLatLng.longitude;
-        // Value of destination location
-        String destinationString = "destination=" + destinationLatLng.latitude + "," + destinationLatLng.longitude;
-        // Set value to enable the sensor
-        String sensor = "sensor-false";
-        // Mode for finding direction
-        String mode = "mode-driving";
-        // Build the full param
-        String param = currentString + "&" + destinationString + "&" + sensor + "&" + mode;
-        // Output format
-        String output = "json";
-        // Create url to request
-        String url = "https://maps.googleapis.com/maps/api/directions/" + output + "?" + param;
+    private String getDirectionsUrl(double latitude, double longitude) {
+        StringBuilder googleDirectionsUrl = new StringBuilder("https://maps.googleapis.com/maps/api/directions/json?");
+        googleDirectionsUrl.append("origin=" + staticLatLng.latitude + "," + staticLatLng.longitude);
+        googleDirectionsUrl.append("&destination=" + latitude + "," + longitude);
+        googleDirectionsUrl.append("&key=" + "AIzaSyCAcfy-02UHSu2F6WeQ1rhQhkCr51eBL9g");
 
-        return url;
-    }
-
-    private String requestDirection(String requestUrl) throws IOException {
-        String responseString = null;
-        InputStream inputStream = null;
-        HttpURLConnection httpURLConnection = null;
-
-        try {
-            URL url = new URL(requestUrl);
-            httpURLConnection = (HttpURLConnection) url.openConnection();
-            httpURLConnection.connect();
-
-            // Get the response result
-            inputStream = httpURLConnection.getInputStream();
-            InputStreamReader inputStreamReader = new InputStreamReader(inputStream);
-            BufferedReader bufferedReader = new BufferedReader(inputStreamReader);
-
-            StringBuffer stringBuffer = new StringBuffer();
-            String line = null;
-
-            while ((line = bufferedReader.readLine()) != null) {
-                stringBuffer.append(line);
-            }
-
-            responseString = stringBuffer.toString();
-            bufferedReader.close();
-            inputStreamReader.close();
-
-        } catch (MalformedURLException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
-        } finally {
-            if (inputStream != null) {
-                inputStream.close();
-            }
-
-            httpURLConnection.disconnect();
-        }
-
-        return responseString;
+        return googleDirectionsUrl.toString();
     }
 
     public boolean checkLocationPermission() {
@@ -375,77 +327,6 @@ public class MainActivity extends AppCompatActivity
                 }
                 double lng = lngDelta * fraction + a.longitude;
                 return new LatLng(lat, lng);
-            }
-        }
-    }
-
-    public class DirectionRequestTask extends AsyncTask<String, Void, String> {
-
-        @Override
-        protected String doInBackground(String... strings) {
-            String responseString = null;
-            try {
-                responseString = requestDirection(strings[0]);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-
-            return responseString;
-        }
-
-        @Override
-        protected void onPostExecute(String s) {
-            super.onPostExecute(s);
-            // Parse json here
-            TaskParser taskParser = new TaskParser();
-            taskParser.execute();
-        }
-    }
-
-    public class TaskParser extends AsyncTask<String, Void, List<List<HashMap<String, String>>>> {
-
-        @Override
-        protected List<List<HashMap<String, String>>> doInBackground(String... strings) {
-            JSONObject jsonObject = null;
-            List<List<HashMap<String, String>>> routes = null;
-            try {
-                jsonObject = new JSONObject(strings[0]);
-                DirectionParser directionParser = new DirectionParser();
-                routes = directionParser.parse(jsonObject);
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
-
-            return routes;
-        }
-
-        @Override
-        protected void onPostExecute(List<List<HashMap<String, String>>> lists) {
-            // Get a list of routes and display it on the map
-            ArrayList points = null;
-            PolylineOptions polylineOptions = null;
-
-            for (List<HashMap<String, String>> path : lists) {
-                points = new ArrayList();
-                polylineOptions = new PolylineOptions();
-
-                for (HashMap<String, String> point : path) {
-                    double lat = Double.parseDouble(point.get("lat"));
-                    double lon = Double.parseDouble(point.get("lon"));
-
-                    points.add(new LatLng(lat, lon));
-                }
-
-                polylineOptions.addAll(points);
-                polylineOptions.width(10);
-                polylineOptions.color(Color.BLACK);
-                polylineOptions.geodesic(true);
-            }
-
-            if (polylineOptions != null) {
-                googleMap.addPolyline(polylineOptions);
-            } else {
-                Toast.makeText(MainActivity.this, "Direction not found!", Toast.LENGTH_SHORT).show();
             }
         }
     }
